@@ -1,0 +1,188 @@
+---
+title: "Verificación del Teorema Central del Límite con Distribución Multimodal"
+author: "Melany Alexandra Ancco Guzman"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float: true
+    number_sections: false
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  fig.width = 8,
+  fig.height = 5
+)
+library(ggplot2)
+library(gridExtra)
+library(kableExtra)
+library(dplyr)
+set.seed(2025)
+```
+
+## **Introducción**
+
+El **Teorema Central del Límite (TCL)** es uno de los pilares de la inferencia estadística. Asegura que, **incluso si la población no es normal**, la distribución de las **medias muestrales** (`X̄` ) se aproxima a una **distribución normal** a medida que el tamaño de la muestra `n` aumenta.
+
+En este trabajo, ponemos a prueba el TCL en el **escenario más desafiante**: una **distribución multimodal con tres picos**. Verificaremos dos propiedades clave:
+
+-   **E(X̄) = μ** (la media de las medias muestrales iguala la media poblacional)
+
+-   **Var(X̄) = σ² / n** (la varianza de las medias disminuye con `n`)
+
+## **1. Población Multimodal (No Normal)**
+
+Generamos una población de **10,000 observaciones** como mezcla de tres normales:
+
+-   30%: `N(μ = -3, σ = 0.8)`
+
+-   40%: `N(μ = 0, σ = 0.8)`
+
+-   30%: `N(μ = 3, σ = 0.8)`
+
+```{r}
+generate_multimodal <- function(N) {
+  group <- sample(c(1, 2, 3), size = N, replace = TRUE, prob = c(0.3, 0.4, 0.3))
+  x <- ifelse(group == 1, rnorm(N, mean = -3, sd = 0.8),
+              ifelse(group == 2, rnorm(N, mean = 0, sd = 0.8),
+                                  rnorm(N, mean = 3, sd = 0.8)))
+  return(x)
+}
+
+N_pop <- 10000
+poblacion <- generate_multimodal(N_pop)
+mu_pop <- mean(poblacion)
+sigma2_pop <- var(poblacion)
+
+# Gráfico estilizado
+ggplot(data.frame(x = poblacion), aes(x)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 100, fill = "#3498db", alpha = 0.7, color = "white") +
+  geom_density(color = "#e74c3c", size = 1.2) +
+  geom_vline(xintercept = mu_pop, linetype = "dashed", color = "#2c3e50", size = 1) +
+  labs(
+    title = "Distribución Multimodal (Población)",
+    subtitle = "Claramente no normal – tres modos bien definidos",
+    x = "Valor", y = "Densidad"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, color = "gray50")
+  )
+```
+
+> 🔴 La línea vertical roja marca **μ = `r round(mu_pop, 3)`**. La forma multimodal es evidente.
+
+## **2. Simulación de Medias Muestrales**
+
+-   **Tamaños de muestra**: `n = 2, 5, 10, 20, 30, 50, 100`
+
+-   **Número de repeticiones**: `B = 5,000`
+
+-   Para cada `n`, se generan `B` muestras y se calcula su media.
+
+```{r}
+ns <- c(2, 5, 10, 20, 30, 50, 100)
+B <- 5000
+
+resultados <- tibble()
+for (n in ns) {
+  medias <- replicate(B, mean(sample(poblacion, size = n, replace = TRUE)))
+  tmp <- tibble(n = factor(n, levels = as.character(ns)), media_muestral = medias)
+  resultados <- bind_rows(resultados, tmp)
+}
+```
+
+## **3. Análisis Visual**
+
+### **3.1. Histogramas por tamaño de muestra**
+
+```{r}
+ggplot(resultados, aes(x = media_muestral)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 50, 
+                 fill = "#2ecc71", alpha = 0.7, color = "white") +
+  facet_wrap(~n, labeller = label_bquote(n == .(n)), ncol = 3) +
+  labs(
+    title = "Distribución de las Medias Muestrales (X̄)",
+    subtitle = "Convergencia hacia la normalidad a medida que n aumenta",
+    x = "Media Muestral", y = "Densidad"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    strip.background = element_rect(fill = "#3498db", color = "white"),
+    strip.text = element_text(color = "white", face = "bold"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, color = "gray50")
+  )
+```
+
+> Para `n = 100`, la distribución ya es casi perfectamente normal.
+
+### **3.2. Gráficos Q-Q (Normalidad)**
+
+```{r}
+qq_list <- lapply(ns, function(n_val) {
+  datos <- filter(resultados, n == as.character(n_val))$media_muestral
+  ggplot(data.frame(x = datos), aes(sample = x)) +
+    stat_qq(color = "#3498db", size = 0.8) +
+    stat_qq_line(color = "#e74c3c", lwd = 1.1) +
+    ggtitle(paste("n =", n_val)) +
+    theme_minimal() +
+    theme(plot.title = element_text(face = "bold", size = 11))
+})
+
+do.call(grid.arrange, c(qq_list, ncol = 3))
+```
+
+> 🔵 Los puntos se alinean con la línea roja → normalidad confirmada para `n ≥ 30`.
+
+## **4. Verificación Numérica**
+
+Comparamos los valores **empíricos** (simulados) con los **teóricos**.
+
+```{r}
+resumen <- resultados %>%
+  group_by(n) %>%
+  summarise(
+    media_empirica = mean(media_muestral),
+    var_empirica = var(media_muestral),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    n_num = as.numeric(as.character(n)),
+    mu_teorico = mu_pop,
+    var_teorica = sigma2_pop / n_num
+  )
+
+resumen %>%
+  select(n, media_empirica, mu_teorico, var_empirica, var_teorica) %>%
+  kable(
+    caption = "Comparación: Valores Empíricos vs. Teóricos",
+    col.names = c("n", "E(X̄) empírico", "μ teórico", "Var(X̄) empírico", "σ²/n teórico"),
+    digits = 4,
+    align = "c"
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)
+```
+
+> La coincidencia es notable, especialmente para `n ≥ 20`.
+
+## **5. Conclusión**
+
+-   La distribución **multimodal** (no normal) **no impide** que el TCL se cumpla.
+
+-   Las medias muestrales **convergen a una normal** a medida que `n` crece.
+
+-   Se verifican **E(X̄) ≈ μ** y **Var(X̄) ≈ σ² / n** con alta precisión.
+
+-   Esto demuestra la **robustez y universalidad del Teorema Central del Límite**.
+
+> **El TCL no requiere normalidad en la población. Solo requiere muestras aleatorias e independientes, y un tamaño de muestra suficientemente grande.**
